@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#eef6ff" />
+    <title>Quiz Canvas</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">✦</div>
+          <div>
+            <p class="eyebrow">Personal template</p>
+            <h1>Quiz Canvas</h1>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <span class="save-status" id="saveStatus" aria-live="polite">Saved locally</span>
+          <button class="button button-primary" id="downloadButton" type="button">
+            <span aria-hidden="true">↓</span> Download PNG
+          </button>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="Quiz image editor">
+        <aside class="editor-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Build your graphic</p>
+              <h2>Content</h2>
+            </div>
+            <button class="text-button" id="resetButton" type="button">Reset</button>
+          </div>
+
+          <label class="field-label" for="questionInput">Question</label>
+          <textarea id="questionInput" class="question-input" rows="3" spellcheck="true"></textarea>
+
+          <label class="field-label" for="accentInput">
+            Accent phrase <span class="field-hint">optional</span>
+          </label>
+          <input id="accentInput" class="text-input" type="text" placeholder="e.g. 84 ÷ 7" />
+          <p class="helper-text">If the phrase appears in the question, it gets the accent colour.</p>
+
+          <div class="section-heading image-heading">
+            <div>
+              <label class="field-label" for="imageInput">Image <span class="field-hint">optional</span></label>
+              <p class="helper-text">Add a visual between the question and the cards.</p>
+            </div>
+            <button class="text-button hidden" id="removeImageButton" type="button">Remove</button>
+          </div>
+          <div class="image-upload-card" id="imageUploadCard">
+            <label class="upload-dropzone" for="imageInput">
+              <span class="upload-icon" aria-hidden="true">＋</span>
+              <span>
+                <strong id="imagePrompt">Choose an image</strong>
+                <small>JPG, PNG, or WebP · kept on this device</small>
+              </span>
+            </label>
+            <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+            <div class="image-selected hidden" id="imageSelected">
+              <img id="imageThumb" alt="Selected image preview" />
+              <span class="image-file-name" id="imageFileName"></span>
+            </div>
+          </div>
+          <div class="image-controls hidden" id="imageControls">
+            <div class="control-row image-fit-row">
+              <div>
+                <label class="field-label" for="imageFitInput">Image fit</label>
+                <p class="helper-text">Show the full image or fill the frame.</p>
+              </div>
+              <select id="imageFitInput" class="select-input">
+                <option value="contain">Show full image</option>
+                <option value="cover">Fill frame / crop</option>
+              </select>
+            </div>
+            <div class="control-row image-ratio-row">
+              <div>
+                <label class="field-label" for="imageRatioInput">Frame ratio</label>
+                <p class="helper-text">Control the image direction yourself.</p>
+              </div>
+              <select id="imageRatioInput" class="select-input">
+                <option value="original">Original image</option>
+                <option value="square">Square · 1:1</option>
+                <option value="landscape">Landscape · 4:3</option>
+                <option value="wide">Wide · 16:9</option>
+                <option value="portrait">Portrait · 3:4</option>
+                <option value="custom">Custom ratio</option>
+              </select>
+            </div>
+            <div class="custom-ratio hidden" id="customRatioControls">
+              <label for="ratioWidthInput">Width</label>
+              <input id="ratioWidthInput" type="number" min="0.2" max="9" step="0.1" value="1" />
+              <span aria-hidden="true">:</span>
+              <label for="ratioHeightInput">Height</label>
+              <input id="ratioHeightInput" type="number" min="0.2" max="9" step="0.1" value="1" />
+            </div>
+            <div class="control-row slider-row">
+              <div>
+                <label class="field-label" for="imageScaleInput">Image size</label>
+                <p class="helper-text">Resize the image frame.</p>
+              </div>
+              <output id="imageScaleValue" for="imageScaleInput">100%</output>
+            </div>
+            <input id="imageScaleInput" class="range-input" type="range" min="70" max="220" step="5" value="100" />
+            <div class="control-row slider-row image-gap-row">
+              <div>
+                <label class="field-label" for="imageGapInput">Question gap</label>
+                <p class="helper-text">Space between question and image.</p>
+              </div>
+              <output id="imageGapValue" for="imageGapInput">2%</output>
+            </div>
+            <input id="imageGapInput" class="range-input" type="range" min="0" max="12" step="0.5" value="2" />
+          </div>
+
+          <div class="section-heading">
+            <div>
+              <label class="field-label" for="optionsList">Answer options</label>
+              <p class="helper-text">Add the choices people should see.</p>
+            </div>
+            <span class="count-pill" id="optionCount">4 / 6</span>
+          </div>
+          <div class="options-list" id="optionsList"></div>
+          <button class="button button-secondary add-option" id="addOptionButton" type="button">
+            <span aria-hidden="true">+</span> Add option
+          </button>
+          <div class="correct-settings">
+            <label class="toggle-control" for="highlightCorrectInput">
+              <input id="highlightCorrectInput" type="checkbox" />
+              <span>Highlight correct answer</span>
+            </label>
+            <p class="helper-text">Click the ✓ beside an option to mark it correct.</p>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="section-heading compact-heading">
+            <div>
+              <p class="field-label">Starter layouts</p>
+              <p class="helper-text">Quickly switch the canvas shape.</p>
+            </div>
+          </div>
+          <div class="format-grid" role="group" aria-label="Canvas format">
+            <button class="format-button" data-format="portrait" type="button">
+              <span class="format-icon format-icon-portrait" aria-hidden="true"></span>
+              <span>Story</span>
+              <small>9:16</small>
+            </button>
+            <button class="format-button" data-format="square" type="button">
+              <span class="format-icon format-icon-square" aria-hidden="true"></span>
+              <span>Square</span>
+              <small>1:1</small>
+            </button>
+            <button class="format-button" data-format="feed" type="button">
+              <span class="format-icon format-icon-feed" aria-hidden="true"></span>
+              <span>Feed</span>
+              <small>4:5</small>
+            </button>
+          </div>
+
+          <div class="control-row">
+            <div>
+              <label class="field-label" for="columnsInput">Option columns</label>
+              <p class="helper-text">How the cards are arranged.</p>
+            </div>
+            <select id="columnsInput" class="select-input">
+              <option value="2">2 columns</option>
+              <option value="1">1 column</option>
+              <option value="3">3 columns</option>
+            </select>
+          </div>
+
+          <div class="control-row slider-row">
+            <div>
+              <label class="field-label" for="questionSizeInput">Question size</label>
+              <p class="helper-text">Make long questions fit.</p>
+            </div>
+            <output id="questionSizeValue" for="questionSizeInput">100%</output>
+          </div>
+          <input id="questionSizeInput" class="range-input" type="range" min="72" max="120" value="100" />
+
+          <div class="divider"></div>
+
+          <div class="section-heading compact-heading">
+            <div>
+              <p class="field-label">Look &amp; feel</p>
+              <p class="helper-text">Use a preset or tune the colours.</p>
+            </div>
+          </div>
+          <div class="theme-grid" role="group" aria-label="Colour theme">
+            <button class="theme-button" data-theme="ice" type="button"><span class="theme-swatch theme-swatch-ice"></span>Ice</button>
+            <button class="theme-button" data-theme="paper" type="button"><span class="theme-swatch theme-swatch-paper"></span>Paper</button>
+            <button class="theme-button" data-theme="midnight" type="button"><span class="theme-swatch theme-swatch-midnight"></span>Midnight</button>
+            <button class="theme-button" data-theme="lilac" type="button"><span class="theme-swatch theme-swatch-lilac"></span>Lilac</button>
+          </div>
+          <div class="color-controls">
+            <label class="color-field" for="accentColorInput">
+              <span>Accent</span>
+              <input id="accentColorInput" type="color" value="#155ee8" />
+            </label>
+            <label class="color-field" for="cardColorInput">
+              <span>Cards</span>
+              <input id="cardColorInput" type="color" value="#eff7ff" />
+            </label>
+            <label class="color-field" for="correctColorInput">
+              <span>Correct</span>
+              <input id="correctColorInput" type="color" value="#18a66a" />
+            </label>
+          </div>
+        </aside>
+
+        <section class="preview-panel">
+          <div class="preview-heading">
+            <div>
+              <p class="eyebrow">Live preview</p>
+              <h2>Your image</h2>
+            </div>
+            <span class="preview-size" id="previewSize">1080 × 1920</span>
+          </div>
+          <div class="preview-stage">
+            <div class="canvas" id="canvas" data-theme="ice">
+              <div class="canvas-grain" aria-hidden="true"></div>
+              <div class="canvas-question" id="canvasQuestion"></div>
+              <div class="canvas-image-wrap" id="canvasImageWrap">
+                <img id="canvasImage" alt="" />
+              </div>
+              <div class="cards-grid" id="cardsGrid"></div>
+              <div class="canvas-wave canvas-wave-back" aria-hidden="true"></div>
+              <div class="canvas-wave canvas-wave-front" aria-hidden="true"></div>
+            </div>
+          </div>
+          <div class="preview-note">
+            <span class="note-dot" aria-hidden="true"></span>
+            Changes save automatically in this browser.
+          </div>
+        </section>
+      </section>
+    </main>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
