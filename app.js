@@ -36,12 +36,17 @@
     imageRatio: "original",
     ratioWidth: 1,
     ratioHeight: 1,
-    imageGap: 2
+    imageGap: 2,
+    autoFit: true,
+    imagePositionX: 50,
+    imagePositionY: 0,
+    imageFrameWidth: 0
   };
 
   let state = loadState();
   let saveTimer;
   let toastTimer;
+  let imageInteraction;
 
   const elements = {
     question: document.getElementById("questionInput"),
@@ -58,6 +63,8 @@
     customRatio: document.getElementById("customRatioControls"),
     ratioWidth: document.getElementById("ratioWidthInput"),
     ratioHeight: document.getElementById("ratioHeightInput"),
+    autoFit: document.getElementById("autoFitInput"),
+    imageInteractionHint: document.getElementById("imageInteractionHint"),
     imageScale: document.getElementById("imageScaleInput"),
     imageScaleValue: document.getElementById("imageScaleValue"),
     imageGap: document.getElementById("imageGapInput"),
@@ -110,8 +117,30 @@
     state.ratioHeight = Math.max(0.2, Number(event.target.value) || 1);
     render();
   });
+  elements.autoFit.addEventListener("change", function (event) {
+    const wasAutoFit = state.autoFit;
+    if (event.target.checked) {
+      state.autoFit = true;
+      state.imagePositionX = 50;
+      state.imagePositionY = 0;
+      state.imageFrameWidth = 0;
+      render();
+      if (!wasAutoFit) showToast("Auto-fit layout restored.");
+      return;
+    }
+    const layout = state.imageData ? getCurrentImageLayout(true) : null;
+    state.autoFit = false;
+    if (layout) {
+      state.imagePositionX = layout.centerX;
+      state.imagePositionY = layout.topPercent;
+      state.imageFrameWidth = layout.widthPercent;
+    }
+    render();
+    showToast("Manual image layout enabled.");
+  });
   elements.imageScale.addEventListener("input", function (event) {
     state.imageScale = Number(event.target.value);
+    if (!state.autoFit) state.imageFrameWidth = clamp(state.imageScale * 0.5, 20, 86);
     render();
   });
   elements.imageGap.addEventListener("input", function (event) {
@@ -148,6 +177,14 @@
     state.imageHeight = elements.canvasImage.naturalHeight;
     render();
   });
+  elements.canvasImageWrap.addEventListener("pointerdown", function (event) {
+    const resizeHandle = event.target.closest ? event.target.closest(".resize-handle") : null;
+    beginImageInteraction(event, resizeHandle ? resizeHandle.dataset.resize : "drag");
+  });
+  elements.canvasImageWrap.addEventListener("pointermove", handleImagePointerMove);
+  elements.canvasImageWrap.addEventListener("pointerup", endImageInteraction);
+  elements.canvasImageWrap.addEventListener("pointercancel", endImageInteraction);
+  elements.canvasImageWrap.addEventListener("lostpointercapture", endImageInteraction);
   elements.addOption.addEventListener("click", function () {
     if (state.options.length >= 6) return;
     state.options.push("New option");
@@ -212,6 +249,7 @@
     elements.imageRatio.value = state.imageRatio;
     elements.ratioWidth.value = String(state.ratioWidth);
     elements.ratioHeight.value = String(state.ratioHeight);
+    elements.autoFit.checked = state.autoFit;
     elements.imageScale.value = String(state.imageScale);
     elements.imageGap.value = String(state.imageGap);
   }
@@ -267,47 +305,43 @@
 
   function renderCanvas() {
     const format = FORMATS[state.format];
+    const hasImage = Boolean(state.imageData);
+    const metrics = getLayoutMetrics(hasImage);
     elements.canvas.dataset.format = state.format;
     elements.canvas.dataset.columns = String(state.columns);
     elements.canvas.dataset.theme = state.theme;
-    elements.canvas.classList.toggle("has-image", Boolean(state.imageData));
+    elements.canvas.classList.toggle("has-image", hasImage);
     elements.canvas.style.setProperty("--canvas-accent", state.accentColor);
     elements.canvas.style.setProperty("--canvas-correct", state.correctColor);
     elements.canvas.style.setProperty("--canvas-correct-soft", hexToRgba(state.correctColor, state.theme === "midnight" ? 0.24 : 0.14));
     elements.canvas.style.setProperty("--canvas-card", hexToRgba(state.cardColor, state.theme === "midnight" ? 0.83 : 0.74));
     const questionScale = state.questionSize / 100;
+    elements.canvasQuestion.style.top = metrics.questionTop + "%";
     elements.canvasQuestion.style.fontSize = "clamp(" + Math.round(18 * questionScale) + "px, " + (4.05 * questionScale).toFixed(2) + "cqw, " + Math.round(44 * questionScale) + "px)";
     elements.canvasQuestion.innerHTML = highlightedQuestion(state.question, state.accent);
-    elements.canvasImage.src = state.imageData || "";
+    const imageSource = state.imageData || "";
+    if (elements.canvasImage.getAttribute("src") !== imageSource) elements.canvasImage.setAttribute("src", imageSource);
     elements.canvasImage.style.objectFit = state.imageFit;
-    elements.canvasImageWrap.classList.toggle("hidden", !state.imageData);
-    const imageScale = state.imageScale / 100;
-    const formatImageBase = state.format === "portrait" ? { top: 26, height: 14, cardsTop: 43 } : state.format === "square" ? { top: 23, height: 17, cardsTop: 44 } : { top: 24, height: 17, cardsTop: 44 };
+    elements.canvasImageWrap.classList.toggle("hidden", !hasImage);
+    elements.canvasImageWrap.classList.toggle("is-manual", hasImage && !state.autoFit);
+    elements.canvasImageWrap.dataset.layout = state.autoFit ? "auto" : "manual";
     const canvasRect = elements.canvas.getBoundingClientRect();
     const canvasWidth = canvasRect.width || 480;
     const canvasHeight = canvasRect.height || canvasWidth * (state.format === "portrait" ? 16 / 9 : state.format === "feed" ? 5 / 4 : 1);
-    const frameAspect = getFrameAspect();
-    const maxImageWidth = Math.min(canvasWidth * 0.86, canvasWidth * 0.5 * imageScale);
-    const maxImageHeight = canvasHeight * (formatImageBase.height / 100) * imageScale;
-    let imageWidthPx = maxImageWidth;
-    let imageHeightPx = state.imageFit === "cover" ? maxImageHeight : imageWidthPx / frameAspect;
-    if (state.imageFit === "contain" && imageHeightPx > maxImageHeight) {
-      imageHeightPx = maxImageHeight;
-      imageWidthPx = imageHeightPx * frameAspect;
-    }
-    const imageWidth = (imageWidthPx / canvasWidth) * 100;
-    const imageHeight = (imageHeightPx / canvasHeight) * 100;
     const questionRect = elements.canvasQuestion.getBoundingClientRect();
     const questionBottomPx = Math.max(questionRect.bottom - canvasRect.top, canvasHeight * 0.11);
-    const imageTopPx = questionBottomPx + canvasHeight * (state.imageGap / 100);
-    const imageTop = (imageTopPx / canvasHeight) * 100;
-    elements.canvasImageWrap.style.top = imageTop + "%";
-    elements.canvasImageWrap.style.width = imageWidth + "%";
-    elements.canvasImageWrap.style.left = ((100 - imageWidth) / 2) + "%";
-    elements.canvasImageWrap.style.height = imageHeight + "%";
-    const imageCardsBottom = Math.min(92, 82 + Math.max(0, state.imageScale - 100) * 0.12);
-    elements.cardsGrid.style.top = (state.imageData ? imageTop + imageHeight + 4 : (state.format === "square" ? 39 : state.format === "feed" ? 35 : 30.7)) + "%";
-    elements.cardsGrid.style.bottom = (state.imageData ? 100 - imageCardsBottom : 18.2) + "%";
+    const imageLayout = hasImage ? getImageLayout(canvasWidth, canvasHeight, questionBottomPx) : null;
+    if (imageLayout) {
+      elements.canvasImageWrap.style.top = imageLayout.topPercent + "%";
+      elements.canvasImageWrap.style.width = imageLayout.widthPercent + "%";
+      elements.canvasImageWrap.style.left = imageLayout.leftPercent + "%";
+      elements.canvasImageWrap.style.height = imageLayout.heightPercent + "%";
+    }
+    const questionAwareGridTopPx = questionBottomPx + canvasHeight * 0.06;
+    const gridTopPx = imageLayout ? imageLayout.gridTop : state.autoFit ? Math.max(canvasHeight * (metrics.noImageGridTop / 100), questionAwareGridTopPx) : canvasHeight * (metrics.noImageGridTop / 100);
+    const gridBottomPx = imageLayout ? imageLayout.gridBottom : state.autoFit ? Math.min(canvasHeight * 0.93, Math.max(canvasHeight * (metrics.gridBottom / 100), gridTopPx + canvasHeight * 0.18)) : canvasHeight * (metrics.gridBottom / 100);
+    elements.cardsGrid.style.top = (gridTopPx / canvasHeight) * 100 + "%";
+    elements.cardsGrid.style.bottom = 100 - ((gridBottomPx / canvasHeight) * 100) + "%";
     elements.cardsGrid.innerHTML = "";
     state.options.forEach(function (option, index) {
       const card = document.createElement("div");
@@ -329,6 +363,12 @@
     elements.removeImage.classList.toggle("hidden", !hasImage);
     elements.imageControls.classList.toggle("hidden", !hasImage);
     elements.customRatio.classList.toggle("hidden", !hasImage || state.imageRatio !== "custom");
+    elements.autoFit.checked = state.autoFit;
+    elements.imageScale.value = String(state.imageScale);
+    elements.imageGap.value = String(state.imageGap);
+    elements.imageInteractionHint.textContent = state.autoFit
+      ? "Auto-fit is on. Turn it off to drag or resize the image manually."
+      : "Manual mode is on. Drag the image to move it, or drag a corner to resize it.";
     elements.imagePrompt.textContent = hasImage ? "Replace image" : "Choose an image";
     if (hasImage) {
       elements.imageThumb.src = state.imageData;
@@ -361,6 +401,10 @@
         state.imageName = file.name;
         state.imageWidth = resized.width;
         state.imageHeight = resized.height;
+        state.autoFit = true;
+        state.imagePositionX = 50;
+        state.imagePositionY = 0;
+        state.imageFrameWidth = 0;
         render();
         showToast("Image added to the canvas.");
       };
@@ -376,9 +420,187 @@
     state.imageName = "";
     state.imageWidth = 0;
     state.imageHeight = 0;
+    state.autoFit = true;
+    state.imagePositionX = 50;
+    state.imagePositionY = 0;
+    state.imageFrameWidth = 0;
     elements.imageInput.value = "";
     render();
     showToast("Image removed.");
+  }
+
+  function getCurrentImageLayout(autoFitOverride) {
+    const canvasRect = elements.canvas.getBoundingClientRect();
+    const canvasWidth = canvasRect.width || 480;
+    const canvasHeight = canvasRect.height || canvasWidth * (state.format === "portrait" ? 16 / 9 : state.format === "feed" ? 5 / 4 : 1);
+    const questionRect = elements.canvasQuestion.getBoundingClientRect();
+    const questionBottomPx = Math.max(questionRect.bottom - canvasRect.top, canvasHeight * 0.11);
+    return getImageLayout(canvasWidth, canvasHeight, questionBottomPx, autoFitOverride);
+  }
+
+  function getLayoutMetrics(hasImage) {
+    const imageQuestionTop = state.format === "square" ? 9 : 8.5;
+    return {
+      questionTop: hasImage ? imageQuestionTop : 17,
+      imageMaxHeight: state.format === "portrait" ? 14 : 17,
+      gridBottom: 82,
+      noImageGridTop: state.format === "square" ? 39 : state.format === "feed" ? 35 : 30.7
+    };
+  }
+
+  function getMinimumGridHeight(canvasHeight) {
+    const rows = Math.ceil(state.options.length / state.columns);
+    const gridGap = canvasHeight * 0.041;
+    return Math.min(canvasHeight * 0.56, Math.max(canvasHeight * 0.2, rows * canvasHeight * 0.09 + Math.max(0, rows - 1) * gridGap));
+  }
+
+  function getImageLayout(canvasWidth, canvasHeight, questionBottomPx, autoFitOverride) {
+    const autoFit = typeof autoFitOverride === "boolean" ? autoFitOverride : state.autoFit;
+    const metrics = getLayoutMetrics(true);
+    const frameAspect = Math.max(0.2, getFrameAspect());
+    const imageScale = state.imageScale / 100;
+    const maxWidthPx = Math.min(canvasWidth * 0.86, canvasWidth * 0.5 * imageScale);
+    const maxHeightPx = canvasHeight * (metrics.imageMaxHeight / 100) * imageScale;
+    let imageWidthPx = autoFit || !state.imageFrameWidth
+      ? Math.min(maxWidthPx, maxHeightPx * frameAspect)
+      : canvasWidth * clamp(state.imageFrameWidth, 20, 86) / 100;
+    let imageHeightPx = imageWidthPx / frameAspect;
+
+    if (autoFit && imageHeightPx > maxHeightPx) {
+      imageHeightPx = maxHeightPx;
+      imageWidthPx = imageHeightPx * frameAspect;
+    }
+    if (imageHeightPx > canvasHeight * 0.86) {
+      imageHeightPx = canvasHeight * 0.86;
+      imageWidthPx = imageHeightPx * frameAspect;
+    }
+
+    const gapBeforePx = canvasHeight * (Math.max(0, state.imageGap) / 100);
+    const gapAfterPx = canvasHeight * 0.04;
+    const gridBottomPx = canvasHeight * (metrics.gridBottom / 100);
+    const minimumGridHeight = getMinimumGridHeight(canvasHeight);
+    if (autoFit) {
+      const availableImageHeight = gridBottomPx - questionBottomPx - gapBeforePx - gapAfterPx - minimumGridHeight;
+      if (availableImageHeight > 0 && imageHeightPx > availableImageHeight) {
+        imageHeightPx = availableImageHeight;
+        imageWidthPx = imageHeightPx * frameAspect;
+      }
+    }
+
+    const rawTopPx = autoFit ? questionBottomPx + gapBeforePx : canvasHeight * (Number(state.imagePositionY) || 0) / 100;
+    const widthPercent = (imageWidthPx / canvasWidth) * 100;
+    const heightPercent = (imageHeightPx / canvasHeight) * 100;
+    const minTopPx = Math.max(canvasHeight * 0.02, questionBottomPx + canvasHeight * 0.005);
+    const maxTopPx = Math.max(minTopPx, canvasHeight * 0.94 - imageHeightPx);
+    const topPx = autoFit ? rawTopPx : clamp(rawTopPx, minTopPx, maxTopPx);
+    const rawCenterX = autoFit ? 50 : Number(state.imagePositionX) || 50;
+    const centerX = autoFit ? 50 : clamp(rawCenterX, widthPercent / 2 + 2, 98 - widthPercent / 2);
+    const leftPx = canvasWidth * (centerX - widthPercent / 2) / 100;
+    const gridTopPx = topPx + imageHeightPx + gapAfterPx;
+    const adjustedGridBottomPx = autoFit
+      ? gridBottomPx
+      : Math.min(canvasHeight * 0.94, Math.max(gridBottomPx, gridTopPx + Math.min(minimumGridHeight, canvasHeight * 0.38)));
+
+    return {
+      leftPx: leftPx,
+      topPx: topPx,
+      widthPx: imageWidthPx,
+      heightPx: imageHeightPx,
+      leftPercent: (leftPx / canvasWidth) * 100,
+      topPercent: (topPx / canvasHeight) * 100,
+      widthPercent: widthPercent,
+      heightPercent: heightPercent,
+      centerX: centerX,
+      gridTop: gridTopPx,
+      gridBottom: adjustedGridBottomPx
+    };
+  }
+
+  function beginImageInteraction(event, mode) {
+    if (!state.imageData || (event.pointerType === "mouse" && event.button !== 0)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const layout = getCurrentImageLayout(state.autoFit);
+    if (!layout) return;
+    const wasAutoFit = state.autoFit;
+    state.autoFit = false;
+    state.imagePositionX = layout.centerX;
+    state.imagePositionY = layout.topPercent;
+    state.imageFrameWidth = layout.widthPercent;
+    imageInteraction = {
+      pointerId: event.pointerId,
+      mode: mode === "drag" ? "drag" : "resize",
+      direction: mode === "drag" ? "" : mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      startCenterX: layout.centerX,
+      startTopPercent: layout.topPercent,
+      startWidthPercent: layout.widthPercent
+    };
+    elements.canvasImageWrap.classList.add("is-manual", "is-interacting");
+    elements.canvasImageWrap.dataset.layout = "manual";
+    elements.autoFit.checked = false;
+    renderImageEditorState();
+    if (wasAutoFit) showToast("Manual image layout enabled. Auto-fit is now off.");
+    try {
+      elements.canvasImageWrap.setPointerCapture(event.pointerId);
+    } catch (error) {
+      // Pointer capture is not available in a few embedded browsers; movement still works when the pointer stays over the image.
+    }
+  }
+
+  function handleImagePointerMove(event) {
+    if (!imageInteraction || event.pointerId !== imageInteraction.pointerId) return;
+    event.preventDefault();
+    const canvasRect = elements.canvas.getBoundingClientRect();
+    if (!canvasRect.width || !canvasRect.height) return;
+    const deltaX = event.clientX - imageInteraction.startX;
+    const deltaY = event.clientY - imageInteraction.startY;
+    let widthPercent = imageInteraction.startWidthPercent;
+    let centerX = imageInteraction.startCenterX;
+    let topPercent = imageInteraction.startTopPercent;
+
+    if (imageInteraction.mode === "drag") {
+      centerX += (deltaX / canvasRect.width) * 100;
+      topPercent += (deltaY / canvasRect.height) * 100;
+    } else {
+      const frameAspect = Math.max(0.2, getFrameAspect());
+      const signX = imageInteraction.direction.indexOf("e") !== -1 ? 1 : -1;
+      const signY = imageInteraction.direction.indexOf("s") !== -1 ? 1 : -1;
+      const widthDelta = ((deltaX * signX) + (deltaY * signY * frameAspect)) / 2 / canvasRect.width * 100;
+      widthPercent = clamp(imageInteraction.startWidthPercent + widthDelta, 20, 86);
+      const actualWidthDelta = widthPercent - imageInteraction.startWidthPercent;
+      const heightDeltaPx = canvasRect.width * (actualWidthDelta / 100) / frameAspect;
+      centerX += (imageInteraction.direction.indexOf("e") !== -1 ? 1 : -1) * actualWidthDelta / 2;
+      if (imageInteraction.direction.indexOf("n") !== -1) topPercent -= (heightDeltaPx / canvasRect.height) * 100;
+    }
+
+    const heightPercent = widthPercent * canvasRect.width / canvasRect.height / Math.max(0.2, getFrameAspect());
+    state.imagePositionX = clamp(centerX, widthPercent / 2 + 2, 98 - widthPercent / 2);
+    state.imagePositionY = clamp(topPercent, 2, Math.max(2, 94 - heightPercent));
+    state.imageFrameWidth = widthPercent;
+    state.imageScale = clamp(Math.round((widthPercent / 50 * 100) / 5) * 5, 70, 220);
+    const liveLayout = getCurrentImageLayout(false);
+    if (liveLayout) {
+      elements.canvasImageWrap.style.top = liveLayout.topPercent + "%";
+      elements.canvasImageWrap.style.width = liveLayout.widthPercent + "%";
+      elements.canvasImageWrap.style.left = liveLayout.leftPercent + "%";
+      elements.canvasImageWrap.style.height = liveLayout.heightPercent + "%";
+      const canvasHeight = canvasRect.height;
+      elements.cardsGrid.style.top = (liveLayout.gridTop / canvasHeight) * 100 + "%";
+      elements.cardsGrid.style.bottom = 100 - ((liveLayout.gridBottom / canvasHeight) * 100) + "%";
+    }
+    elements.imageScale.value = String(state.imageScale);
+    elements.imageScaleValue.textContent = state.imageScale + "%";
+    scheduleSave();
+  }
+
+  function endImageInteraction(event) {
+    if (!imageInteraction || (event && event.pointerId !== imageInteraction.pointerId)) return;
+    imageInteraction = null;
+    elements.canvasImageWrap.classList.remove("is-interacting");
+    renderImageEditorState();
+    scheduleSave();
   }
 
   function updateSelectionStates() {
@@ -401,6 +623,10 @@
       return state.imageWidth / state.imageHeight;
     }
     return presetAspects[state.imageRatio] || 1.5;
+  }
+
+  function clamp(value, minimum, maximum) {
+    return Math.min(maximum, Math.max(minimum, value));
   }
 
   function highlightedQuestion(question, accent) {
@@ -468,11 +694,16 @@
   function createSvg(width, height) {
     const colors = themeColors(state.theme, state.accentColor, state.cardColor);
     const margin = width * 0.08;
-    const questionSize = Math.max(48, Math.min(82, 78 * state.questionSize / 100));
-    const questionLines = wrapText(state.question || "Your question goes here", Math.floor(46 * (width / 1080)) || 30);
+    let questionSize = Math.max(48, Math.min(82, 78 * state.questionSize / 100));
+    let questionLines = wrapTextToWidth(state.question || "Your question goes here", width * 0.84, questionSize, 4);
+    while (questionLines.length > 3 && questionSize > 42) {
+      questionSize -= 4;
+      questionLines = wrapTextToWidth(state.question || "Your question goes here", width * 0.84, questionSize, 4);
+    }
     const questionLineHeight = questionSize * 1.06;
     const hasImage = Boolean(state.imageData);
-    const questionTop = hasImage ? height * 0.09 : height * (state.format === "square" ? 0.17 : 0.18);
+    const metrics = getLayoutMetrics(hasImage);
+    const questionTop = height * (metrics.questionTop / 100);
     const questionBottom = questionTop + questionLines.length * questionLineHeight;
     const questionSvg = questionLines.map(function (line, index) {
       const y = questionTop + questionSize + index * questionLineHeight;
@@ -482,19 +713,13 @@
     let imageSvg = "";
     let imageY = 0;
     let imageHeight = 0;
+    let imageLayout;
     if (hasImage) {
-      const imageScale = state.imageScale / 100;
-      const frameAspect = getFrameAspect();
-      const maxImageWidth = Math.min(width * 0.86, width * 0.5 * imageScale);
-      const maxImageHeight = height * (state.format === "portrait" ? 0.14 : 0.17) * imageScale;
-      let imageWidth = maxImageWidth;
-      imageHeight = state.imageFit === "cover" ? maxImageHeight : imageWidth / frameAspect;
-      if (state.imageFit === "contain" && imageHeight > maxImageHeight) {
-        imageHeight = maxImageHeight;
-        imageWidth = imageHeight * frameAspect;
-      }
-      const imageX = (width - imageWidth) / 2;
-      imageY = questionBottom + height * (state.imageGap / 100);
+      imageLayout = getImageLayout(width, height, questionBottom, state.autoFit);
+      const imageX = imageLayout.leftPx;
+      const imageWidth = imageLayout.widthPx;
+      imageY = imageLayout.topPx;
+      imageHeight = imageLayout.heightPx;
       const preserveAspectRatio = state.imageFit === "cover" ? "xMidYMid slice" : "xMidYMid meet";
       imageSvg = '<rect x="' + imageX + '" y="' + imageY + '" width="' + imageWidth + '" height="' + imageHeight + '" rx="' + Math.min(30, imageWidth * 0.07) + '" fill="' + colors.card + '" stroke="' + colors.cardBorder + '" stroke-width="2" filter="url(#shadow)" />' +
         '<image href="' + state.imageData + '" x="' + imageX + '" y="' + imageY + '" width="' + imageWidth + '" height="' + imageHeight + '" preserveAspectRatio="' + preserveAspectRatio + '" clip-path="url(#imageClip)" />';
@@ -502,10 +727,9 @@
 
     const columns = state.columns;
     const rows = Math.ceil(state.options.length / columns);
-    const imageCardsTop = (imageY + imageHeight + height * 0.04);
-    const gridTop = hasImage ? imageCardsTop : height * (state.format === "square" ? 0.39 : state.format === "feed" ? 0.35 : 0.31);
-    const imageGridBottom = Math.min(92, 82 + Math.max(0, state.imageScale - 100) * 0.12);
-    const gridBottom = height * (hasImage ? imageGridBottom / 100 : 0.82);
+    const questionAwareGridTop = questionBottom + height * 0.06;
+    const gridTop = hasImage ? imageLayout.gridTop : state.autoFit ? Math.max(height * (metrics.noImageGridTop / 100), questionAwareGridTop) : height * (metrics.noImageGridTop / 100);
+    const gridBottom = hasImage ? imageLayout.gridBottom : state.autoFit ? Math.min(height * 0.93, Math.max(height * (metrics.gridBottom / 100), gridTop + height * 0.18)) : height * (metrics.gridBottom / 100);
     const gap = Math.max(24, width * 0.04);
     const cardWidth = (width - margin * 2 - gap * (columns - 1)) / columns;
     const cardHeight = (gridBottom - gridTop - gap * (rows - 1)) / rows;
@@ -569,6 +793,28 @@
     });
     if (line) lines.push(line);
     return lines.slice(0, 3);
+  }
+
+  function wrapTextToWidth(value, maxWidth, fontSize, maxLines) {
+    const text = String(value || "").trim();
+    if (!text) return ["Your question goes here"];
+    const measureCanvas = document.createElement("canvas");
+    const context = measureCanvas.getContext("2d");
+    context.font = "800 " + fontSize + "px Arial";
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = "";
+    words.forEach(function (word) {
+      const next = line ? line + " " + word : word;
+      if (line && context.measureText(next).width > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    });
+    if (line) lines.push(line);
+    return lines.slice(0, maxLines || lines.length);
   }
 
   function highlightedSvgLine(line, accent, accentColor) {

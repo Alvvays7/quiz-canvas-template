@@ -97,6 +97,17 @@
               <label for="ratioHeightInput">Height</label>
               <input id="ratioHeightInput" type="number" min="0.2" max="9" step="0.1" value="1" />
             </div>
+            <div class="control-row layout-row">
+              <div>
+                <label class="field-label" for="autoFitInput">Canvas layout</label>
+                <p class="helper-text">Balance the question, image, and options automatically.</p>
+              </div>
+              <label class="toggle-control layout-toggle" for="autoFitInput">
+                <input id="autoFitInput" type="checkbox" checked />
+                <span>Auto-fit</span>
+              </label>
+            </div>
+            <p class="image-interaction-hint" id="imageInteractionHint">Auto-fit is on. Turn it off to drag or resize the image manually.</p>
             <div class="control-row slider-row">
               <div>
                 <label class="field-label" for="imageScaleInput">Image size</label>
@@ -223,8 +234,13 @@
             <div class="canvas" id="canvas" data-theme="ice">
               <div class="canvas-grain" aria-hidden="true"></div>
               <div class="canvas-question" id="canvasQuestion"></div>
-              <div class="canvas-image-wrap" id="canvasImageWrap">
+              <div class="canvas-image-wrap" id="canvasImageWrap" role="group" aria-label="Image. Drag to move it, or use a corner handle to resize it.">
                 <img id="canvasImage" alt="" />
+                <span class="image-drag-hint" aria-hidden="true">Drag to move</span>
+                <button class="resize-handle resize-handle-nw" data-resize="nw" type="button" aria-label="Resize image from top left"></button>
+                <button class="resize-handle resize-handle-ne" data-resize="ne" type="button" aria-label="Resize image from top right"></button>
+                <button class="resize-handle resize-handle-sw" data-resize="sw" type="button" aria-label="Resize image from bottom left"></button>
+                <button class="resize-handle resize-handle-se" data-resize="se" type="button" aria-label="Resize image from bottom right"></button>
               </div>
               <div class="cards-grid" id="cardsGrid"></div>
               <div class="canvas-wave canvas-wave-back" aria-hidden="true"></div>
