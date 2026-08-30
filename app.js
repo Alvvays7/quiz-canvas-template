@@ -46,7 +46,8 @@
   const blankState = Object.assign(clone(defaultState), {
     question: "",
     accent: "",
-    options: ["", ""],
+    options: ["", "", ""],
+    columns: 1,
     correctIndex: -1,
     highlightCorrect: false,
     imageData: "",
