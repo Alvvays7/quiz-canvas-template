@@ -22,4 +22,4 @@ Open `index.html` in a browser. No install, account, server, or API key is neede
 - Local browser autosave
 - Sharp PNG export generated in the browser
 
-The default content recreates the supplied reference example. Click **Reset** at any time to return to it.
+The first load includes the supplied reference example. Click **Reset** to clear the question, accent, image, and option text so the template is ready for fresh copy and paste.

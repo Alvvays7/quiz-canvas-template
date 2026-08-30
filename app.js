@@ -43,6 +43,28 @@
     imageFrameWidth: 0
   };
 
+  const blankState = Object.assign(clone(defaultState), {
+    question: "",
+    accent: "",
+    options: ["", ""],
+    correctIndex: -1,
+    highlightCorrect: false,
+    imageData: "",
+    imageName: "",
+    imageWidth: 0,
+    imageHeight: 0,
+    imageFit: "contain",
+    imageScale: 100,
+    imageRatio: "original",
+    ratioWidth: 1,
+    ratioHeight: 1,
+    imageGap: 2,
+    autoFit: true,
+    imagePositionX: 50,
+    imagePositionY: 0,
+    imageFrameWidth: 0
+  });
+
   let state = loadState();
   let saveTimer;
   let toastTimer;
@@ -194,10 +216,14 @@
     inputs[inputs.length - 1].select();
   });
   elements.reset.addEventListener("click", function () {
-    state = clone(defaultState);
+    state = clone(blankState);
+    imageInteraction = null;
+    elements.imageInput.value = "";
+    elements.canvasImageWrap.classList.remove("is-interacting");
+    localStorage.removeItem(STORAGE_KEY);
     hydrateInputs();
     render();
-    showToast("Template reset to the reference example.");
+    showToast("Template cleared. Paste in your question and options.");
   });
   elements.download.addEventListener("click", downloadPng);
 
@@ -347,7 +373,7 @@
       const card = document.createElement("div");
       const isCorrect = state.highlightCorrect && state.correctIndex === index;
       card.className = "option-card" + (option.length > 11 ? " long" : "") + (isCorrect ? " is-correct" : "");
-      card.textContent = option || "Option";
+      card.textContent = option || "";
       elements.cardsGrid.appendChild(card);
     });
     elements.previewSize.textContent = format.width + " × " + format.height;
@@ -630,6 +656,7 @@
   }
 
   function highlightedQuestion(question, accent) {
+    if (!question) return "";
     const safeQuestion = escapeHtml(question || "Your question goes here");
     const safeAccent = escapeHtml(accent || "");
     if (!safeAccent || !safeQuestion.includes(safeAccent)) return safeQuestion;
@@ -695,10 +722,10 @@
     const colors = themeColors(state.theme, state.accentColor, state.cardColor);
     const margin = width * 0.08;
     let questionSize = Math.max(48, Math.min(82, 78 * state.questionSize / 100));
-    let questionLines = wrapTextToWidth(state.question || "Your question goes here", width * 0.84, questionSize, 4);
+    let questionLines = wrapTextToWidth(state.question, width * 0.84, questionSize, 4);
     while (questionLines.length > 3 && questionSize > 42) {
       questionSize -= 4;
-      questionLines = wrapTextToWidth(state.question || "Your question goes here", width * 0.84, questionSize, 4);
+      questionLines = wrapTextToWidth(state.question, width * 0.84, questionSize, 4);
     }
     const questionLineHeight = questionSize * 1.06;
     const hasImage = Boolean(state.imageData);
@@ -740,7 +767,7 @@
       const y = gridTop + row * (cardHeight + gap);
       const length = option.length;
       const fontSize = Math.max(31, Math.min(76, length > 11 ? 45 : 72 - Math.max(0, length - 4) * 4));
-      const safeOption = escapeHtml(option || "Option");
+      const safeOption = escapeHtml(option || "");
       const isCorrect = state.highlightCorrect && state.correctIndex === index;
       const cardFill = isCorrect ? colors.correctCard : colors.card;
       const cardBorder = isCorrect ? colors.correct : colors.cardBorder;
@@ -797,7 +824,7 @@
 
   function wrapTextToWidth(value, maxWidth, fontSize, maxLines) {
     const text = String(value || "").trim();
-    if (!text) return ["Your question goes here"];
+    if (!text) return [];
     const measureCanvas = document.createElement("canvas");
     const context = measureCanvas.getContext("2d");
     context.font = "800 " + fontSize + "px Arial";
