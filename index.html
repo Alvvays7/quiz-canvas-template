@@ -35,6 +35,52 @@
             <button class="text-button" id="resetButton" type="button">Reset</button>
           </div>
 
+          <div class="mode-switch" role="group" aria-label="Editor mode">
+            <button class="mode-button is-selected" id="singleModeButton" type="button" aria-pressed="true">Single question</button>
+            <button class="mode-button" id="batchModeButton" type="button" aria-pressed="false">Batch · 3 max</button>
+          </div>
+
+          <section class="batch-editor hidden" id="batchEditor" aria-labelledby="batchEditorTitle">
+            <div class="batch-intro">
+              <p class="eyebrow">Batch export</p>
+              <h3 id="batchEditorTitle">Three questions at once</h3>
+              <p class="helper-text">Paste up to three multiple-choice questions, then upload their images together.</p>
+            </div>
+            <label class="field-label" for="batchInput">Questions and options</label>
+            <textarea id="batchInput" class="batch-input" rows="12" placeholder="Q: What is the capital of India?&#10;A: Mumbai&#10;B: New Delhi&#10;C: Kolkata&#10;Correct: B&#10;&#10;Q: Second question&#10;A: First option&#10;B: Second option&#10;Correct: A"></textarea>
+            <p class="helper-text">Use one blank line between questions. Correct can be a letter, number, or exact option text.</p>
+            <div class="batch-action-row">
+              <button class="button button-secondary" id="parseBatchButton" type="button">Load questions</button>
+              <span class="batch-parse-status" id="batchParseStatus" aria-live="polite"></span>
+            </div>
+
+            <div class="section-heading batch-image-heading">
+              <div>
+                <label class="field-label" for="batchImageInput">Question images <span class="field-hint">optional</span></label>
+                <p class="helper-text">Upload up to 3 images together. They map to Question 1, 2, and 3 in order.</p>
+              </div>
+            </div>
+            <label class="upload-dropzone batch-upload-dropzone" for="batchImageInput">
+              <span class="upload-icon" aria-hidden="true">＋</span>
+              <span>
+                <strong>Choose up to 3 images</strong>
+                <small>JPG, PNG, or WebP · Question 1 → Question 3</small>
+              </span>
+            </label>
+            <input id="batchImageInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+            <div class="batch-image-list" id="batchImageList"></div>
+
+            <div class="batch-download-heading hidden" id="batchDownloadHeading">
+              <div>
+                <p class="field-label">Individual downloads</p>
+                <p class="helper-text">Each question has a normal PNG and a highlighted PNG. You confirm every download separately.</p>
+              </div>
+            </div>
+            <div class="batch-items" id="batchItems"></div>
+          </section>
+
+          <div id="singleEditorContent">
+
           <label class="field-label" for="questionInput">Question</label>
           <textarea id="questionInput" class="question-input" rows="3" spellcheck="true"></textarea>
 
@@ -220,6 +266,7 @@
               <input id="correctColorInput" type="color" value="#18a66a" />
             </label>
           </div>
+          </div>
         </aside>
 
         <section class="preview-panel">
@@ -255,6 +302,17 @@
       </section>
     </main>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="app.js?v=20260830"></script>
+    <div class="download-modal hidden" id="batchDownloadModal" role="dialog" aria-modal="true" aria-labelledby="batchDownloadTitle">
+      <div class="download-modal-card">
+        <p class="eyebrow">Confirm download</p>
+        <h2 id="batchDownloadTitle">Download this PNG?</h2>
+        <p id="batchDownloadMessage">This will download one image to your device.</p>
+        <div class="download-modal-actions">
+          <button class="button button-secondary" id="cancelBatchDownload" type="button">Cancel</button>
+          <button class="button button-primary" id="confirmBatchDownload" type="button">Confirm &amp; download</button>
+        </div>
+      </div>
+    </div>
+    <script src="app.js?v=20260901"></script>
   </body>
 </html>

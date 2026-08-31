@@ -67,11 +67,31 @@
   });
 
   let state = loadState();
+  let editorMode = "single";
+  let singleState = null;
+  let batchState = { source: "", items: [], activeIndex: 0, pendingImages: [], status: "" };
+  let pendingBatchDownload = null;
   let saveTimer;
   let toastTimer;
   let imageInteraction;
 
   const elements = {
+    singleMode: document.getElementById("singleModeButton"),
+    batchMode: document.getElementById("batchModeButton"),
+    singleEditor: document.getElementById("singleEditorContent"),
+    batchEditor: document.getElementById("batchEditor"),
+    batchInput: document.getElementById("batchInput"),
+    parseBatch: document.getElementById("parseBatchButton"),
+    batchParseStatus: document.getElementById("batchParseStatus"),
+    batchImageInput: document.getElementById("batchImageInput"),
+    batchImageList: document.getElementById("batchImageList"),
+    batchDownloadHeading: document.getElementById("batchDownloadHeading"),
+    batchItems: document.getElementById("batchItems"),
+    batchDownloadModal: document.getElementById("batchDownloadModal"),
+    batchDownloadTitle: document.getElementById("batchDownloadTitle"),
+    batchDownloadMessage: document.getElementById("batchDownloadMessage"),
+    cancelBatchDownload: document.getElementById("cancelBatchDownload"),
+    confirmBatchDownload: document.getElementById("confirmBatchDownload"),
     question: document.getElementById("questionInput"),
     accent: document.getElementById("accentInput"),
     imageInput: document.getElementById("imageInput"),
@@ -113,6 +133,18 @@
     download: document.getElementById("downloadButton"),
     toast: document.getElementById("toast")
   };
+
+  elements.singleMode.addEventListener("click", function () { setEditorMode("single"); });
+  elements.batchMode.addEventListener("click", function () { setEditorMode("batch"); });
+  elements.batchInput.addEventListener("input", function (event) {
+    batchState.source = event.target.value;
+    batchState.status = "";
+  });
+  elements.parseBatch.addEventListener("click", parseBatchQuestions);
+  elements.batchImageInput.addEventListener("change", handleBatchImageSelection);
+  elements.batchItems.addEventListener("click", handleBatchItemAction);
+  elements.cancelBatchDownload.addEventListener("click", closeBatchDownloadModal);
+  elements.confirmBatchDownload.addEventListener("click", confirmBatchDownload);
 
   elements.question.addEventListener("input", function (event) {
     state.question = event.target.value;
@@ -217,6 +249,17 @@
     inputs[inputs.length - 1].select();
   });
   elements.reset.addEventListener("click", function () {
+    if (editorMode === "batch") {
+      batchState = { source: "", items: [], activeIndex: 0, pendingImages: [], status: "" };
+      pendingBatchDownload = null;
+      elements.batchInput.value = "";
+      closeBatchDownloadModal();
+      state = getEmptyBatchPreviewState();
+      render();
+      renderBatchEditor();
+      showToast("Batch cleared. Paste in up to three new questions.");
+      return;
+    }
     state = clone(blankState);
     imageInteraction = null;
     elements.imageInput.value = "";
@@ -226,7 +269,7 @@
     render();
     showToast("Template cleared. Paste in your question and options.");
   });
-  elements.download.addEventListener("click", downloadPng);
+  elements.download.addEventListener("click", function () { downloadPng(); });
 
   document.querySelectorAll(".format-button").forEach(function (button) {
     button.addEventListener("click", function () {
@@ -248,6 +291,7 @@
 
   hydrateInputs();
   render();
+  renderEditorMode();
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -282,10 +326,352 @@
   }
 
   function render() {
-    renderOptionsEditor();
+    if (editorMode === "single") renderOptionsEditor();
     renderCanvas();
     updateSelectionStates();
-    scheduleSave();
+    if (editorMode === "single") scheduleSave();
+  }
+
+  function renderEditorMode() {
+    const isBatch = editorMode === "batch";
+    elements.singleEditor.classList.toggle("hidden", isBatch);
+    elements.batchEditor.classList.toggle("hidden", !isBatch);
+    elements.singleMode.classList.toggle("is-selected", !isBatch);
+    elements.batchMode.classList.toggle("is-selected", isBatch);
+    elements.singleMode.setAttribute("aria-pressed", String(!isBatch));
+    elements.batchMode.setAttribute("aria-pressed", String(isBatch));
+    elements.download.classList.toggle("hidden", isBatch);
+    elements.saveStatus.textContent = isBatch ? "Batch mode" : "Saved locally";
+  }
+
+  function setEditorMode(nextMode) {
+    if (nextMode === editorMode) return;
+    if (nextMode === "batch") {
+      singleState = clone(state);
+      editorMode = "batch";
+      pendingBatchDownload = null;
+      state = getEmptyBatchPreviewState();
+      renderEditorMode();
+      render();
+      renderBatchEditor();
+      return;
+    }
+
+    editorMode = "single";
+    pendingBatchDownload = null;
+    closeBatchDownloadModal();
+    state = clone(singleState || blankState);
+    singleState = null;
+    imageInteraction = null;
+    elements.canvasImageWrap.classList.remove("is-interacting");
+    hydrateInputs();
+    renderEditorMode();
+    render();
+  }
+
+  function getEmptyBatchPreviewState() {
+    const base = singleState || state;
+    return Object.assign(clone(base), {
+      question: "",
+      accent: "",
+      options: ["", "", ""],
+      correctIndex: -1,
+      highlightCorrect: false,
+      imageData: "",
+      imageName: "",
+      imageWidth: 0,
+      imageHeight: 0,
+      autoFit: true,
+      imagePositionX: 50,
+      imagePositionY: 0,
+      imageFrameWidth: 0
+    });
+  }
+
+  function buildBatchRenderState(item) {
+    const base = singleState || state;
+    return Object.assign(clone(base), {
+      question: item.question || "",
+      accent: item.accent || "",
+      options: Array.isArray(item.options) ? item.options.slice(0, 6) : [],
+      correctIndex: Number.isInteger(item.correctIndex) ? item.correctIndex : -1,
+      highlightCorrect: true,
+      imageData: item.imageData || "",
+      imageName: item.imageName || "",
+      imageWidth: item.imageWidth || 0,
+      imageHeight: item.imageHeight || 0,
+      autoFit: true,
+      imagePositionX: 50,
+      imagePositionY: 0,
+      imageFrameWidth: 0
+    });
+  }
+
+  function activateBatchItem(index) {
+    if (!batchState.items[index]) return;
+    batchState.activeIndex = index;
+    state = buildBatchRenderState(batchState.items[index]);
+    render();
+    renderBatchEditor();
+  }
+
+  function parseBatchQuestions() {
+    const source = elements.batchInput.value || "";
+    const allQuestions = parseBatchText(source);
+    const previousItems = batchState.items.slice();
+    const pendingImages = batchState.pendingImages.slice(0, 3);
+    const questions = allQuestions.slice(0, 3);
+
+    batchState.source = source;
+    batchState.items = questions.map(function (question, index) {
+      const item = createBatchItem(question);
+      const previousImage = previousItems[index] && previousItems[index].imageData ? previousItems[index] : null;
+      const pendingImage = pendingImages[index] || null;
+      Object.assign(item, imageFields(previousImage || pendingImage));
+      return item;
+    });
+    batchState.activeIndex = 0;
+
+    if (!questions.length) {
+      batchState.status = "Paste at least one question block to load the batch.";
+      state = getEmptyBatchPreviewState();
+      render();
+      renderBatchEditor();
+      return;
+    }
+
+    batchState.status = allQuestions.length > 3
+      ? "Loaded the first 3 questions. This batch is limited to 3."
+      : "Loaded " + questions.length + " question" + (questions.length === 1 ? "" : "s") + ".";
+    activateBatchItem(0);
+    showToast(batchState.status);
+  }
+
+  function parseBatchText(source) {
+    const normalized = String(source || "").replace(/\r\n?/g, "\n").trim();
+    if (!normalized) return [];
+    let blocks = normalized.split(/\n\s*\n+/).map(function (block) { return block.trim(); }).filter(Boolean);
+    if (blocks.length === 1) {
+      const markedBlocks = normalized.split(/(?=^\s*Q(?:uestion)?(?:\s+\d+)?\s*:)/im).map(function (block) { return block.trim(); }).filter(Boolean);
+      if (markedBlocks.length > 1) blocks = markedBlocks;
+    }
+    return blocks.map(parseBatchBlock).filter(function (item) {
+      return item.question || item.options.length;
+    });
+  }
+
+  function parseBatchBlock(block) {
+    const lines = String(block || "").split("\n").map(function (line) { return line.trim(); }).filter(Boolean);
+    const questionLines = [];
+    const options = [];
+    let accent = "";
+    let correctRaw = "";
+    let hasOptions = false;
+
+    lines.forEach(function (line) {
+      const questionMatch = line.match(/^Q(?:uestion)?(?:\s+\d+)?\s*:\s*(.*)$/i);
+      const accentMatch = line.match(/^Accent(?:\s+phrase)?\s*:\s*(.*)$/i);
+      const correctMatch = line.match(/^(?:Correct(?:\s+answer)?|Answer)\s*:\s*(.*)$/i);
+      const optionMatch = line.match(/^(?:Option\s*)?([A-F]|[1-6])\s*[\)\.\:\-]\s*(.+)$/i);
+
+      if (questionMatch) {
+        if (questionMatch[1]) questionLines.push(questionMatch[1].trim());
+        return;
+      }
+      if (accentMatch) {
+        accent = accentMatch[1].trim();
+        return;
+      }
+      if (correctMatch) {
+        correctRaw = correctMatch[1].trim();
+        return;
+      }
+      if (optionMatch) {
+        hasOptions = true;
+        if (options.length < 6) options.push(optionMatch[2].trim());
+        return;
+      }
+      if (!hasOptions) {
+        questionLines.push(line);
+      } else if (options.length) {
+        options[options.length - 1] += " " + line;
+      }
+    });
+
+    const question = questionLines.join(" ").trim();
+    return {
+      question: question,
+      accent: accent,
+      options: options,
+      correctIndex: resolveCorrectIndex(correctRaw, options)
+    };
+  }
+
+  function resolveCorrectIndex(value, options) {
+    const normalized = String(value || "").trim();
+    if (!normalized) return -1;
+    const label = normalized.match(/^(?:option\s*)?([A-F])(?:\s*[\)\.\:\-].*)?$/i);
+    if (label) {
+      const index = label[1].toUpperCase().charCodeAt(0) - 65;
+      return index < options.length ? index : -1;
+    }
+    const number = normalized.match(/^(?:option\s*)?(\d+)(?:\s*[\)\.\:\-].*)?$/i);
+    if (number) {
+      const index = Number(number[1]) - 1;
+      return index >= 0 && index < options.length ? index : -1;
+    }
+    const exact = normalized.toLowerCase();
+    return options.findIndex(function (option) { return option.toLowerCase() === exact; });
+  }
+
+  function createBatchItem(parsed) {
+    return {
+      question: parsed.question || "",
+      accent: parsed.accent || "",
+      options: Array.isArray(parsed.options) ? parsed.options.slice(0, 6) : [],
+      correctIndex: Number.isInteger(parsed.correctIndex) ? parsed.correctIndex : -1,
+      imageData: "",
+      imageName: "",
+      imageWidth: 0,
+      imageHeight: 0,
+      downloaded: { normal: false, highlighted: false }
+    };
+  }
+
+  function imageFields(source) {
+    if (!source || !source.imageData) return {};
+    return {
+      imageData: source.imageData,
+      imageName: source.imageName || "",
+      imageWidth: source.imageWidth || 0,
+      imageHeight: source.imageHeight || 0
+    };
+  }
+
+  function validateBatchItem(item) {
+    if (!item.question.trim()) return "Add a question.";
+    if (item.options.length < 2) return "Add at least two options.";
+    if (item.options.some(function (option) { return !option.trim(); })) return "Fill every option.";
+    if (!Number.isInteger(item.correctIndex) || item.correctIndex < 0 || item.correctIndex >= item.options.length) return "Add a correct answer.";
+    return "";
+  }
+
+  function renderBatchEditor() {
+    if (elements.batchInput.value !== batchState.source) elements.batchInput.value = batchState.source;
+    elements.batchParseStatus.textContent = batchState.status || (batchState.items.length ? "Ready to download." : "");
+    elements.batchDownloadHeading.classList.toggle("hidden", !batchState.items.length);
+
+    const imageCount = Math.max(batchState.items.length, batchState.pendingImages.length);
+    if (!imageCount) {
+      elements.batchImageList.innerHTML = '<p class="helper-text batch-empty-state">Your uploaded images will appear here in question order.</p>';
+    } else {
+      elements.batchImageList.innerHTML = Array.from({ length: Math.min(3, imageCount) }, function (_, index) {
+        const item = batchState.items[index];
+        const image = item && item.imageData ? item : batchState.pendingImages[index];
+        const imageMarkup = image && image.imageData
+          ? '<img src="' + escapeHtml(image.imageData) + '" alt="" />'
+          : '<span class="batch-image-placeholder" aria-hidden="true">＋</span>';
+        const name = image && image.imageName ? image.imageName : "Waiting for image";
+        return '<div class="batch-image-entry">' +
+          '<span class="batch-image-number">Q' + (index + 1) + '</span>' +
+          imageMarkup +
+          '<span class="batch-image-copy"><strong>Question ' + (index + 1) + '</strong><small>' + escapeHtml(name) + '</small></span>' +
+          '</div>';
+      }).join("");
+    }
+
+    elements.batchItems.innerHTML = batchState.items.map(function (item, index) {
+      const error = validateBatchItem(item);
+      const isActive = index === batchState.activeIndex;
+      const downloaded = item.downloaded || {};
+      const optionMarkup = item.options.length
+        ? '<ul class="batch-option-list">' + item.options.map(function (option, optionIndex) {
+          const correctClass = item.correctIndex === optionIndex ? " is-correct" : "";
+          return '<li class="batch-option' + correctClass + '"><span class="batch-option-letter">' + String.fromCharCode(65 + optionIndex) + '</span><span>' + escapeHtml(option || "(empty)") + '</span></li>';
+        }).join("") + '</ul>'
+        : '<p class="batch-item-empty">No answer options were found.</p>';
+      const image = item.imageData ? item : batchState.pendingImages[index];
+      const imageLabel = image && image.imageName ? image.imageName : "No image";
+      const statusMarkup = error
+        ? '<span class="batch-item-status is-warning">' + escapeHtml(error) + '</span>'
+        : '<span class="batch-item-status is-ready">Ready</span>';
+      const normalDownloaded = downloaded.normal ? '<span class="batch-downloaded">Normal saved</span>' : '';
+      const highlightedDownloaded = downloaded.highlighted ? '<span class="batch-downloaded">Highlighted saved</span>' : '';
+      return '<article class="batch-item' + (isActive ? ' is-active' : '') + '" data-index="' + index + '">' +
+        '<div class="batch-item-header"><span class="batch-item-label">Question ' + (index + 1) + '</span>' + statusMarkup + '</div>' +
+        '<p class="batch-item-question">' + escapeHtml(item.question || "Untitled question") + '</p>' +
+        optionMarkup +
+        '<div class="batch-item-meta"><span class="batch-meta-pill">' + escapeHtml(imageLabel) + '</span>' +
+          (item.correctIndex >= 0 ? '<span class="batch-meta-pill">Correct: ' + String.fromCharCode(65 + item.correctIndex) + '</span>' : '') + '</div>' +
+        '<button class="text-button batch-preview-button" type="button" data-batch-action="preview" data-batch-index="' + index + '">Preview question ' + (index + 1) + '</button>' +
+        '<div class="batch-download-actions">' +
+          '<button class="batch-download-button" type="button" data-batch-action="download" data-batch-variant="normal" data-batch-index="' + index + '" aria-label="Download normal PNG for question ' + (index + 1) + '"' + (error ? ' disabled' : '') + '>↓ Normal PNG' + (normalDownloaded ? ' · saved' : '') + '</button>' +
+          '<button class="batch-download-button highlighted" type="button" data-batch-action="download" data-batch-variant="highlighted" data-batch-index="' + index + '" aria-label="Download highlighted PNG for question ' + (index + 1) + '"' + (error ? ' disabled' : '') + '>✓ Highlighted PNG' + (highlightedDownloaded ? ' · saved' : '') + '</button>' +
+        '</div>' +
+        '<div class="batch-download-status">' + normalDownloaded + highlightedDownloaded + '</div>' +
+        '</article>';
+    }).join("");
+  }
+
+  function handleBatchItemAction(event) {
+    const button = event.target.closest ? event.target.closest("[data-batch-action]") : null;
+    if (!button) return;
+    const index = Number(button.dataset.batchIndex);
+    if (button.dataset.batchAction === "preview") {
+      activateBatchItem(index);
+      return;
+    }
+    if (button.dataset.batchAction === "download") {
+      requestBatchDownload(index, button.dataset.batchVariant);
+    }
+  }
+
+  function requestBatchDownload(index, variant) {
+    const item = batchState.items[index];
+    if (!item) return;
+    const error = validateBatchItem(item);
+    if (error) {
+      showToast("Question " + (index + 1) + ": " + error);
+      return;
+    }
+    const label = variant === "highlighted" ? "highlighted" : "normal";
+    const filename = "quiz-question-" + String(index + 1).padStart(2, "0") + "-" + label + ".png";
+    pendingBatchDownload = { index: index, variant: label, filename: filename };
+    elements.batchDownloadTitle.textContent = "Download Question " + (index + 1) + "?";
+    elements.batchDownloadMessage.textContent = "This will download one " + label + " PNG named " + filename + ".";
+    elements.batchDownloadModal.classList.remove("hidden");
+    elements.confirmBatchDownload.focus();
+  }
+
+  function closeBatchDownloadModal() {
+    pendingBatchDownload = null;
+    elements.batchDownloadModal.classList.add("hidden");
+  }
+
+  async function confirmBatchDownload() {
+    const pending = pendingBatchDownload;
+    if (!pending) return;
+    const item = batchState.items[pending.index];
+    pendingBatchDownload = null;
+    elements.batchDownloadModal.classList.add("hidden");
+    if (!item) return;
+
+    const previousState = state;
+    state = buildBatchRenderState(item);
+    state.highlightCorrect = pending.variant === "highlighted";
+    elements.confirmBatchDownload.disabled = true;
+    let success = false;
+    try {
+      success = await downloadPng({ silent: true, filename: pending.filename });
+    } finally {
+      state = previousState;
+      elements.confirmBatchDownload.disabled = false;
+    }
+    if (success) {
+      item.downloaded[pending.variant] = true;
+      renderBatchEditor();
+      showToast("Question " + (pending.index + 1) + " " + pending.variant + " PNG downloaded.");
+    }
   }
 
   function renderOptionsEditor() {
@@ -413,33 +799,71 @@
       showToast("Choose a JPG, PNG, or WebP image.");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = function () {
-      const image = new Image();
-      image.onload = function () {
-        const maxDimension = 1200;
-        const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
-        const resized = document.createElement("canvas");
-        resized.width = Math.max(1, Math.round(image.naturalWidth * scale));
-        resized.height = Math.max(1, Math.round(image.naturalHeight * scale));
-        resized.getContext("2d").drawImage(image, 0, 0, resized.width, resized.height);
-        const outputType = file.type === "image/png" ? "image/png" : "image/jpeg";
-        state.imageData = resized.toDataURL(outputType, 0.88);
-        state.imageName = file.name;
-        state.imageWidth = resized.width;
-        state.imageHeight = resized.height;
-        state.autoFit = true;
-        state.imagePositionX = 50;
-        state.imagePositionY = 0;
-        state.imageFrameWidth = 0;
-        render();
-        showToast("Image added to the canvas.");
+    readAndResizeImage(file).then(function (image) {
+      Object.assign(state, image);
+      state.autoFit = true;
+      state.imagePositionX = 50;
+      state.imagePositionY = 0;
+      state.imageFrameWidth = 0;
+      render();
+      showToast("Image added to the canvas.");
+    }).catch(function () {
+      showToast("That image could not be read.");
+    });
+  }
+
+  function handleBatchImageSelection(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) return;
+    if (files.some(function (file) { return !file.type.startsWith("image/"); })) {
+      showToast("Choose JPG, PNG, or WebP images only.");
+      return;
+    }
+    if (files.length > 3) showToast("Only the first 3 images will be used.");
+    Promise.all(files.slice(0, 3).map(readAndResizeImage)).then(function (images) {
+      batchState.pendingImages = images;
+      images.forEach(function (image, index) {
+        if (!batchState.items[index]) return;
+        Object.assign(batchState.items[index], image, { downloaded: { normal: false, highlighted: false } });
+      });
+      if (batchState.items.length) {
+        activateBatchItem(Math.min(batchState.activeIndex, batchState.items.length - 1));
+      } else {
+        renderBatchEditor();
+      }
+      showToast(images.length + " image" + (images.length === 1 ? "" : "s") + " added in question order.");
+    }).catch(function () {
+      showToast("One of those images could not be read.");
+    });
+  }
+
+  function readAndResizeImage(file) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        const image = new Image();
+        image.onload = function () {
+          const maxDimension = 1200;
+          const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+          const resized = document.createElement("canvas");
+          resized.width = Math.max(1, Math.round(image.naturalWidth * scale));
+          resized.height = Math.max(1, Math.round(image.naturalHeight * scale));
+          resized.getContext("2d").drawImage(image, 0, 0, resized.width, resized.height);
+          const outputType = file.type === "image/png" ? "image/png" : "image/jpeg";
+          resolve({
+            imageData: resized.toDataURL(outputType, 0.88),
+            imageName: file.name,
+            imageWidth: resized.width,
+            imageHeight: resized.height
+          });
+        };
+        image.onerror = reject;
+        image.src = reader.result;
       };
-      image.onerror = function () { showToast("That image could not be read."); };
-      image.src = reader.result;
-    };
-    reader.onerror = function () { showToast("That image could not be read."); };
-    reader.readAsDataURL(file);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   }
 
   function removeSelectedImage() {
@@ -544,7 +968,7 @@
   }
 
   function beginImageInteraction(event, mode) {
-    if (!state.imageData || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (editorMode === "batch" || !state.imageData || (event.pointerType === "mouse" && event.button !== 0)) return;
     event.preventDefault();
     event.stopPropagation();
     const layout = getCurrentImageLayout(state.autoFit);
@@ -665,6 +1089,7 @@
   }
 
   function scheduleSave() {
+    if (editorMode !== "single") return;
     elements.saveStatus.textContent = "Saving…";
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(function () {
@@ -682,9 +1107,13 @@
     }, 2600);
   }
 
-  async function downloadPng() {
-    elements.download.disabled = true;
-    elements.download.innerHTML = '<span aria-hidden="true">…</span> Preparing image';
+  async function downloadPng(options) {
+    const settings = options || {};
+    const silent = Boolean(settings.silent);
+    if (!silent) {
+      elements.download.disabled = true;
+      elements.download.innerHTML = '<span aria-hidden="true">…</span> Preparing image';
+    }
     try {
       const format = FORMATS[state.format];
       const svg = createSvg(format.width, format.height);
@@ -704,18 +1133,23 @@
       context.drawImage(image, 0, 0, format.width, format.height);
       URL.revokeObjectURL(url);
       const png = await new Promise(function (resolve) { canvas.toBlob(resolve, "image/png"); });
+      if (!png) throw new Error("PNG export returned no data.");
       const downloadUrl = URL.createObjectURL(png);
       const link = document.createElement("a");
       link.href = downloadUrl;
-      link.download = "quiz-canvas-" + Date.now() + ".png";
+      link.download = settings.filename || ("quiz-canvas-" + Date.now() + ".png");
       link.click();
       URL.revokeObjectURL(downloadUrl);
-      showToast("PNG downloaded.");
+      if (!silent) showToast("PNG downloaded.");
+      return true;
     } catch (error) {
-      showToast("Could not export the image in this browser.");
+      if (!silent) showToast("Could not export the image in this browser.");
+      return false;
     } finally {
-      elements.download.disabled = false;
-      elements.download.innerHTML = '<span aria-hidden="true">↓</span> Download PNG';
+      if (!silent) {
+        elements.download.disabled = false;
+        elements.download.innerHTML = '<span aria-hidden="true">↓</span> Download PNG';
+      }
     }
   }
 
