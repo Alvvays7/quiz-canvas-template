@@ -334,6 +334,8 @@ h2 { margin-bottom: 0; font-size: 22px; letter-spacing: -0.04em; }
 .batch-download-button:disabled { opacity: 0.45; cursor: not-allowed; }
 .batch-download-status { display: flex; flex-wrap: wrap; gap: 8px; min-height: 14px; margin-top: 8px; }
 .batch-downloaded { color: #168c5b; font-size: 9px; font-weight: 800; }
+.canvas[data-mode="batch"] .canvas-image-wrap { cursor: default; }
+.canvas[data-mode="batch"] .resize-handle, .canvas[data-mode="batch"] .image-drag-hint { display: none; }
 .download-modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 22px; background: rgba(13, 28, 59, 0.26); backdrop-filter: blur(3px); }
 .download-modal-card { width: min(390px, 100%); padding: 24px; border: 1px solid #e3e9f2; border-radius: 18px; background: #fff; box-shadow: 0 22px 60px rgba(28, 43, 70, 0.22); }
 .download-modal-card h2 { margin: 0 0 8px; color: #1b2944; font-size: 20px; letter-spacing: -0.04em; }

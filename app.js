@@ -129,6 +129,7 @@
     cardColor: document.getElementById("cardColorInput"),
     correctColor: document.getElementById("correctColorInput"),
     previewSize: document.getElementById("previewSize"),
+    previewNoteText: document.getElementById("previewNoteText"),
     saveStatus: document.getElementById("saveStatus"),
     download: document.getElementById("downloadButton"),
     toast: document.getElementById("toast")
@@ -342,6 +343,9 @@
     elements.batchMode.setAttribute("aria-pressed", String(isBatch));
     elements.download.classList.toggle("hidden", isBatch);
     elements.saveStatus.textContent = isBatch ? "Batch mode" : "Saved locally";
+    elements.previewNoteText.textContent = isBatch
+      ? "Batch work stays in this page until you download it."
+      : "Changes save automatically in this browser.";
   }
 
   function setEditorMode(nextMode) {
@@ -723,6 +727,7 @@
     elements.canvas.dataset.format = state.format;
     elements.canvas.dataset.columns = String(state.columns);
     elements.canvas.dataset.theme = state.theme;
+    elements.canvas.dataset.mode = editorMode;
     elements.canvas.classList.toggle("has-image", hasImage);
     elements.canvas.style.setProperty("--canvas-accent", state.accentColor);
     elements.canvas.style.setProperty("--canvas-correct", state.correctColor);
@@ -823,9 +828,13 @@
     if (files.length > 3) showToast("Only the first 3 images will be used.");
     Promise.all(files.slice(0, 3).map(readAndResizeImage)).then(function (images) {
       batchState.pendingImages = images;
-      images.forEach(function (image, index) {
-        if (!batchState.items[index]) return;
-        Object.assign(batchState.items[index], image, { downloaded: { normal: false, highlighted: false } });
+      batchState.items.forEach(function (item, index) {
+        Object.assign(item, images[index] || {
+          imageData: "",
+          imageName: "",
+          imageWidth: 0,
+          imageHeight: 0
+        }, { downloaded: { normal: false, highlighted: false } });
       });
       if (batchState.items.length) {
         activateBatchItem(Math.min(batchState.activeIndex, batchState.items.length - 1));
